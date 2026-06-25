@@ -5,16 +5,20 @@ import sqlglot
 from sqlglot import exp
 import shutil
 import os
+from io import StringIO  # 用於將純文字轉換為 Pandas 讀取的流物件
 
 # ==========================================
 # 1. 系統環境與資料庫核心初始化
 # ==========================================
 st.set_page_config(page_title="RF-Lens Ultimate", layout="wide", page_icon="📡")
 
+# 確保快取與狀態獨立穩定
 if 'sql_query' not in st.session_state:
     st.session_state.sql_query = "SELECT * FROM rf_sectors;"
 if 'preview_passed' not in st.session_state:
     st.session_state.preview_passed = False
+if 'pipeline_df' not in st.session_state:
+    st.session_state.pipeline_df = None
 
 def update_query(new_query):
     """一鍵注入語法並安全上鎖"""
@@ -38,7 +42,7 @@ def init_rf_db():
 conn = init_rf_db()
 
 # ==========================================
-# 2. 核心功能分頁系統 (四大模組)
+# 2. 核心功能分頁系統
 # ==========================================
 tab_manual, tab_pipeline, tab_sandbox, tab_monitor = st.tabs(["📖 完整操作手冊", "🧽 資料清洗管線", "🧪 全方位互動沙盒", "📊 即時數據監控"])
 
@@ -64,55 +68,74 @@ with tab_manual:
        - `sinr` (FLOAT): 信噪比 (越高代表抗干擾能力越強)
 
     ### 🛠️ 二、核心操作指南
-    - **資料清洗 (ETL)**：支援上傳外部 CSV，進行一鍵去重、補缺後直接匯入資料庫。
+    - **資料清洗 (ETL)**：手機端若上傳檔案沒反應，請切換至 **『直接貼上 CSV 文字』** 管道，100% 繞過權限。
     - **安全防禦機制**：進行 `UPDATE` 或 `DELETE` 時，強制開啟沙盒攔截，未點擊「安全預覽」前正式執行按鈕將維持鎖定。
     - **效能分析引擎**：每次預覽會自動執行 `EXPLAIN QUERY PLAN`，偵測全表掃描 (SCAN TABLE)。
     - **時光機回溯**：每次正式執行寫入前，系統會在背景複製快照，可一鍵點擊 `Undo` 完美還原。
     """)
 
-# --- 分頁 2：資料清洗管線 (ETL Pipeline) ---
+# --- 分頁 2：資料清洗管線 (修復手機上傳沒反應) ---
 with tab_pipeline:
-    st.subheader("🧽 CSV 數據匯入與自動清洗")
-    st.caption("將外部收集的原始路測數據 (Raw Data) 上傳，去噪後再注入資料庫。")
+    st.subheader("🧽 數據匯入與自動清洗")
+    st.caption("針對行動端瀏覽器隱私安全限制，系統已升級支援『多管道數據載入機制』。")
 
-    # 1. 上傳區塊 (加入備用載入機制)
-    st.markdown("**📥 1. 匯入原始資料 (CSV)**")
+    # 1. 匯入管道切換器
+    import_method = st.radio(
+        "📥 請選擇數據載入管道：", 
+        ["方法一：上傳本地 CSV 檔案 (適合 PC 端)", "方法二：直接貼上 CSV 文字 (100% 手機端安全牌)", "方法三：載入含雜訊的內建測試集"], 
+        horizontal=True
+    )
     
-    # 建立一個佔存變數來存放資料
-    raw_df = None 
-    
-    # 並排顯示上傳區與測試按鈕
-    col_up1, col_up2 = st.columns([1, 1])
-    with col_up1:
-        uploaded_file = st.file_uploader("上傳本地檔案", type="csv", label_visibility="collapsed")
-    with col_up2:
-        st.markdown("<div style='margin-top: 5px; color: #888; font-size: 14px;'>手機無法上傳？</div>", unsafe_allow_html=True)
-        use_sample = st.button("🧪 一鍵載入含雜訊的測試資料", use_container_width=True)
+    # 核心暫存重置
+    if st.button("🗑️ 清空目前載入之數據", use_container_width=True):
+        st.session_state.pipeline_df = None
+        st.rerun()
 
-    # 判斷資料來源
-    if uploaded_file is not None:
-        raw_df = pd.read_csv(uploaded_file)
-    elif use_sample:
-        # 故意製造含有「重複值」與「缺失值 NaN」的髒資料
-        raw_df = pd.DataFrame({
-            "sector_id": [1, 2, 1, 3, 2, None],
-            "rsrp": [-85, -100, -85, -115, -95, -105],
-            "sinr": [15.2, 5.5, 15.2, 2.1, 8.8, None]
-        })
-        st.toast("已載入測試用雜訊數據！", icon="🧪")
+    # 管道 A：檔案上傳
+    if "方法一" in import_method:
+        uploaded_file = st.file_uploader("請選擇或拖曳 CSV 檔案", type="csv")
+        if uploaded_file is not None:
+            try:
+                st.session_state.pipeline_df = pd.read_csv(uploaded_file)
+            except Exception as e:
+                st.error(f"檔案讀取失敗: {e}")
 
-    # 2. 互動式清洗策略 (只有當 raw_df 有資料時才顯示)
-    if raw_df is not None:
-        st.write(f"**👀 原始資料預覽 (共 {len(raw_df)} 筆)：**")
-        st.dataframe(raw_df, use_container_width=True)
+    # 管道 B：文字貼上（專治手機沒反應）
+    elif "方法二" in import_method:
+        st.markdown("💡 **手機免權限操作提示**：直接複製下方範本或外部數據，貼入框內即可直接解析：")
+        default_csv = "sector_id,rsrp,sinr\n1,-85,15.2\n2,-100,5.5\n1,-85,15.2\n3,,2.1\n2,-95,8.8\n2,-95,8.8"
+        csv_text_input = st.text_area("CSV 純文字輸入區", value=default_csv, height=130)
+        if st.button("⚡ 立即解析並載入文字數據", use_container_width=True):
+            if csv_text_input.strip():
+                try:
+                    st.session_state.pipeline_df = pd.read_csv(StringIO(csv_text_input))
+                    st.toast("📋 文字數據解析成功！", icon="✅")
+                except Exception as e:
+                    st.error(f"解析失敗，請確認格式是否為標準 CSV（首行為欄位名稱）。錯誤：{e}")
 
-        st.markdown("**⚙️ 2. 選擇資料清洗策略：**")
+    # 管道 C：系統內建數據測試
+    else:
+        if st.button("🧪 一鍵生成含重複值與空值的測試髒數據", use_container_width=True):
+            st.session_state.pipeline_df = pd.DataFrame({
+                "sector_id": [1, 2, 1, 3, 2, None],
+                "rsrp": [-85, -100, -85, -115, -95, -105],
+                "sinr": [15.2, 5.5, 15.2, 2.1, 8.8, None]
+            })
+            st.toast("已成功注入測試髒數據！", icon="🧪")
+
+    # 2. 自動化與互動式清洗流程
+    if st.session_state.pipeline_df is not None:
+        st.markdown("---")
+        st.write(f"**👀 目前原始資料快照 (共 {len(st.session_state.pipeline_df)} 筆)：**")
+        st.dataframe(st.session_state.pipeline_df, use_container_width=True)
+
+        st.markdown("**⚙️ 2. 設定即時資料清洗策略：**")
         c1, c2 = st.columns(2)
-        drop_dups = c1.checkbox("🗑️ 移除重複資料列 (如第1與第3筆)", value=True)
-        handle_na = c2.selectbox("🩹 缺失值 (NaN) 處理方式", ["不處理", "整列刪除 (Drop)", "數值補零 (Fill 0)"])
+        drop_dups = c1.checkbox("🗑️ 自動移除重複資料列 (Deduplicate)", value=True)
+        handle_na = c2.selectbox("🩹 缺失值 (NaN / 空格) 處理方式", ["不處理", "整列刪除 (Drop)", "數值補零 (Fill 0)"])
 
-        # 執行清洗邏輯
-        clean_df = raw_df.copy()
+        # 執行即時清洗
+        clean_df = st.session_state.pipeline_df.copy()
         if drop_dups:
             clean_df = clean_df.drop_duplicates()
         if handle_na == "整列刪除 (Drop)":
@@ -120,34 +143,34 @@ with tab_pipeline:
         elif handle_na == "數值補零 (Fill 0)":
             clean_df = clean_df.fillna(0)
 
-        st.write(f"**✨ 清洗後資料預覽 (剩餘 {len(clean_df)} 筆)：**")
+        st.write(f"**✨ 清洗轉換後預覽 (剩餘 {len(clean_df)} 筆)：**")
         st.dataframe(clean_df, use_container_width=True)
 
-        # 3. 輸出與載入區塊
-        st.markdown("**📤 3. 匯出與寫入：**")
+        # 3. 輸出與資料載入管線
+        st.markdown("**📤 3. 資料管線輸出端：**")
         out1, out2 = st.columns(2)
         
+        # 下載乾淨 CSV 檔案
         csv_buffer = clean_df.to_csv(index=False).encode('utf-8')
         out1.download_button(
-            label="⬇️ 下載乾淨的 CSV",
+            label="⬇️ 下載清洗後乾淨的 CSV",
             data=csv_buffer,
             file_name="cleaned_rf_data.csv",
             mime="text/csv",
             use_container_width=True
         )
 
-        if out2.button("⚡ 正式匯入至資料庫 (drive_tests)", type="primary", use_container_width=True):
+        # 寫入正式資料庫
+        if out2.button("⚡ 將乾淨數據直接注入資料庫 (drive_tests)", type="primary", use_container_width=True):
             try:
                 clean_df.to_sql("drive_tests", conn, if_exists="append", index=False)
-                st.success(f"💥 成功將 {len(clean_df)} 筆數據匯入資料庫！")
+                st.success(f"💥 成功將 {len(clean_df)} 筆乾淨數據載入資料庫！請至「即時監控」查看。")
                 st.balloons()
             except Exception as e:
-                st.error(f"寫入失敗，請確認欄位是否吻合。錯誤：{e}")
-
+                st.error(f"寫入失敗，請確認欄位是否與目標資料表結構吻合。錯誤：{e}")
 
 # --- 分頁 3：全方位互動沙盒 ---
 with tab_sandbox:
-    # 響應式行動端 ER 結構表
     with st.expander("🕸️ 射頻資料庫實體關聯 (ER Schema) — 行動端最佳化", expanded=True):
         st.markdown("""
         | 📡 基站表 (`cell_sites`) | 📐 扇區表 (`rf_sectors`) | 📈 路測表 (`drive_tests`) |
@@ -156,11 +179,9 @@ with tab_sandbox:
         | 📝 site_name `TEXT` | 🔗 **site_id** `INT` (外鍵 ➜ 基站) | 🔗 **sector_id** `INT` (外鍵 ➜ 扇區) |
         | 📍 lat, lon `FLOAT` | 📻 band `TEXT` / azimuth, tilt `INT` | 📶 rsrp `INT` / sinr `FLOAT` |
         """)
-        st.caption("🔗 資料串接血緣：基站 (1) ➔ (N) 扇區 (1) ➔ (N) 路測數據")
 
     st.subheader("🛠️ 射頻 SQL 開發終端機")
     
-    # 語法庫快捷鍵
     st.markdown("**💡 點擊一鍵帶入實戰 SQL 指令：**")
     g1, g2, g3 = st.columns(3)
     g4, g5, g6 = st.columns(3)
@@ -174,27 +195,24 @@ with tab_sandbox:
 
     query_input = st.text_area("SQL 編輯區 (支援手動修改)", value=st.session_state.sql_query, height=140)
 
-    # 執行與預覽區塊
     b1, b2 = st.columns(2)
     with b1:
         if st.button("👁️ 1. 安全預覽與效能分析 (Dry Run)", use_container_width=True):
             try:
                 parsed = sqlglot.parse_one(query_input)
                 
-                # 效能 X 光機
+                # EXPLAIN QUERY PLAN
                 plan_df = pd.read_sql_query(f"EXPLAIN QUERY PLAN {query_input}", conn)
                 if any("SCAN TABLE" in row['detail'] for _, row in plan_df.iterrows()):
-                    st.warning("⚠️ [效能警示] 偵測到全表掃描 (SCAN TABLE)，建議針對 FK 建立 Index。")
+                    st.warning("⚠️ [效能警示] 偵測到全表掃描 (SCAN TABLE)，大數據環境下建議建立 Index。")
                 else:
                     st.success("⚡ [效能優良] 查詢計畫已最佳化。")
                 
-                # 防呆邏輯分流
                 if isinstance(parsed, exp.Insert):
                     table_name = parsed.find(exp.Table).name
                     st.info(f"💡 動作偵測：新增資料至 `{table_name}` 表。")
                     st.warning("⚠️ 安全防護：請確認資料無誤後，於右側點擊正式寫入。")
                     st.session_state.preview_passed = True
-
                 elif isinstance(parsed, (exp.Update, exp.Delete)):
                     where = parsed.args.get("where")
                     if not where: 
@@ -206,7 +224,6 @@ with tab_sandbox:
                         st.session_state.preview_passed = True
                 else:
                     st.dataframe(pd.read_sql_query(query_input, conn), use_container_width=True)
-                    
             except Exception as e: 
                 st.error(f"語法解析錯誤: {e}")
     
