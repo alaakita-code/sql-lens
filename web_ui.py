@@ -38,9 +38,9 @@ def init_rf_db():
 conn = init_rf_db()
 
 # ==========================================
-# 2. 核心功能分頁系統
+# 2. 核心功能分頁系統 (四大模組)
 # ==========================================
-tab_manual, tab_sandbox, tab_monitor = st.tabs(["📖 完整操作手冊", "🧪 全方位互動沙盒", "📊 即時數據監控"])
+tab_manual, tab_pipeline, tab_sandbox, tab_monitor = st.tabs(["📖 完整操作手冊", "🧽 資料清洗管線", "🧪 全方位互動沙盒", "📊 即時數據監控"])
 
 # --- 分頁 1：完整操作手冊 ---
 with tab_manual:
@@ -64,12 +64,67 @@ with tab_manual:
        - `sinr` (FLOAT): 信噪比 (越高代表抗干擾能力越強)
 
     ### 🛠️ 二、核心操作指南
-    - **安全防禦機制**：進行 `UPDATE` 或 `DELETE` 時，系統會強制開啟沙盒攔截，未點擊「安全預覽」前，正式執行按鈕將維持灰色鎖定。
-    - **效能分析引擎**：每次預覽會自動執行 `EXPLAIN QUERY PLAN`，若寫出缺乏 Index 的「全表掃描 (SCAN TABLE)」低效語法，系統會即時亮起黃燈警告。
-    - **時光機回溯**：每次正式執行寫入前，系統會在背景複製 `.db` 快照，若操作失誤，可一鍵點擊 `Undo` 完美還原。
+    - **資料清洗 (ETL)**：支援上傳外部 CSV，進行一鍵去重、補缺後直接匯入資料庫。
+    - **安全防禦機制**：進行 `UPDATE` 或 `DELETE` 時，強制開啟沙盒攔截，未點擊「安全預覽」前正式執行按鈕將維持鎖定。
+    - **效能分析引擎**：每次預覽會自動執行 `EXPLAIN QUERY PLAN`，偵測全表掃描 (SCAN TABLE)。
+    - **時光機回溯**：每次正式執行寫入前，系統會在背景複製快照，可一鍵點擊 `Undo` 完美還原。
     """)
 
-# --- 分頁 2：全方位互動沙盒 ---
+# --- 分頁 2：資料清洗管線 (ETL Pipeline) ---
+with tab_pipeline:
+    st.subheader("🧽 CSV 數據匯入與自動清洗")
+    st.caption("將外部收集的原始路測數據 (Raw Data) 上傳，去噪後再注入資料庫。")
+
+    # 1. 上傳區塊
+    uploaded_file = st.file_uploader("📥 1. 上傳原始資料檔 (CSV)", type="csv")
+    
+    if uploaded_file is not None:
+        raw_df = pd.read_csv(uploaded_file)
+        st.write(f"**👀 原始資料預覽 (共 {len(raw_df)} 筆)：**")
+        st.dataframe(raw_df.head(), use_container_width=True)
+
+        # 2. 互動式清洗策略
+        st.markdown("**⚙️ 2. 選擇資料清洗策略：**")
+        c1, c2 = st.columns(2)
+        drop_dups = c1.checkbox("🗑️ 移除重複資料列", value=True)
+        handle_na = c2.selectbox("🩹 缺失值 (NaN) 處理方式", ["不處理", "整列刪除 (Drop)", "數值補零 (Fill 0)"])
+
+        # 執行清洗邏輯
+        clean_df = raw_df.copy()
+        if drop_dups:
+            clean_df = clean_df.drop_duplicates()
+        if handle_na == "整列刪除 (Drop)":
+            clean_df = clean_df.dropna()
+        elif handle_na == "數值補零 (Fill 0)":
+            clean_df = clean_df.fillna(0)
+
+        st.write(f"**✨ 清洗後資料預覽 (剩餘 {len(clean_df)} 筆)：**")
+        st.dataframe(clean_df.head(), use_container_width=True)
+
+        # 3. 輸出與載入區塊
+        st.markdown("**📤 3. 匯出與寫入：**")
+        out1, out2 = st.columns(2)
+        
+        # 下載功能
+        csv_buffer = clean_df.to_csv(index=False).encode('utf-8')
+        out1.download_button(
+            label="⬇️ 下載乾淨的 CSV 備查",
+            data=csv_buffer,
+            file_name="cleaned_rf_data.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+        # 寫入資料庫功能
+        if out2.button("⚡ 正式匯入至路測資料庫 (drive_tests)", type="primary", use_container_width=True):
+            try:
+                clean_df.to_sql("drive_tests", conn, if_exists="append", index=False)
+                st.success(f"💥 成功將 {len(clean_df)} 筆數據匯入資料庫！請至「即時監控」查看。")
+                st.balloons()
+            except Exception as e:
+                st.error(f"寫入失敗，請確認 CSV 欄位名稱是否與資料表吻合。錯誤：{e}")
+
+# --- 分頁 3：全方位互動沙盒 ---
 with tab_sandbox:
     # 響應式行動端 ER 結構表
     with st.expander("🕸️ 射頻資料庫實體關聯 (ER Schema) — 行動端最佳化", expanded=True):
@@ -84,7 +139,7 @@ with tab_sandbox:
 
     st.subheader("🛠️ 射頻 SQL 開發終端機")
     
-    # 語法庫快捷鍵（基礎到進階全涵蓋）
+    # 語法庫快捷鍵
     st.markdown("**💡 點擊一鍵帶入實戰 SQL 指令：**")
     g1, g2, g3 = st.columns(3)
     g4, g5, g6 = st.columns(3)
@@ -98,33 +153,39 @@ with tab_sandbox:
 
     query_input = st.text_area("SQL 編輯區 (支援手動修改)", value=st.session_state.sql_query, height=140)
 
-    # 按鈕控制
+    # 執行與預覽區塊
     b1, b2 = st.columns(2)
     with b1:
         if st.button("👁️ 1. 安全預覽與效能分析 (Dry Run)", use_container_width=True):
             try:
                 parsed = sqlglot.parse_one(query_input)
                 
-                # 效能 X 光機 (EXPLAIN)
+                # 效能 X 光機
                 plan_df = pd.read_sql_query(f"EXPLAIN QUERY PLAN {query_input}", conn)
                 if any("SCAN TABLE" in row['detail'] for _, row in plan_df.iterrows()):
-                    st.warning("⚠️ [效能警示] 偵測到全表掃描 (SCAN TABLE)，大數據環境下建議針對 FK 建立 Index。")
+                    st.warning("⚠️ [效能警示] 偵測到全表掃描 (SCAN TABLE)，建議針對 FK 建立 Index。")
                 else:
                     st.success("⚡ [效能優良] 查詢計畫已最佳化。")
                 
-                # 安全防呆攔截
-                if isinstance(parsed, (exp.Update, exp.Delete)):
+                # 防呆邏輯分流
+                if isinstance(parsed, exp.Insert):
+                    table_name = parsed.find(exp.Table).name
+                    st.info(f"💡 動作偵測：新增資料至 `{table_name}` 表。")
+                    st.warning("⚠️ 安全防護：請確認資料無誤後，於右側點擊正式寫入。")
+                    st.session_state.preview_passed = True
+
+                elif isinstance(parsed, (exp.Update, exp.Delete)):
                     where = parsed.args.get("where")
                     if not where: 
                         st.error("🚨 嚴重攔截：禁止無 WHERE 條件的全表破壞性操作！")
                     else:
                         df = pd.read_sql_query(f"SELECT * FROM {parsed.find(exp.Table).name} {where}", conn)
-                        st.warning(f"⚠️ 安全防護：本次操作預計影響 {len(df)} 筆數據，請於右側確認執行。")
+                        st.warning(f"⚠️ 安全防護：本次操作預計影響 {len(df)} 筆數據，請確認執行。")
                         st.dataframe(df, use_container_width=True)
                         st.session_state.preview_passed = True
                 else:
-                    # SELECT 查詢直接呈現
                     st.dataframe(pd.read_sql_query(query_input, conn), use_container_width=True)
+                    
             except Exception as e: 
                 st.error(f"語法解析錯誤: {e}")
     
@@ -132,10 +193,10 @@ with tab_sandbox:
         is_disabled = not st.session_state.preview_passed
         if st.button("⚡ 2. 確認無誤，正式寫入資料庫", type="primary", disabled=is_disabled, use_container_width=True):
             try:
-                shutil.copy("rf_ultimate.db", "rf_ultimate_backup.db") # 瞬間建立時光機快照
+                shutil.copy("rf_ultimate.db", "rf_ultimate_backup.db")
                 conn.execute(query_input)
                 conn.commit()
-                st.success("💥 數據寫入成功！")
+                st.success("💥 數據操作成功！")
                 st.session_state.preview_passed = False
                 st.balloons()
             except Exception as e: 
@@ -149,7 +210,7 @@ with tab_sandbox:
                 st.toast("⏪ 射頻資料庫已成功回溯至上一個安全狀態！", icon="⏳")
                 st.rerun()
 
-# --- 分頁 3 : 即時數據監控 ---
+# --- 分頁 4 : 即時數據監控 ---
 with tab_monitor:
     st.subheader("📊 資料庫即時快照 (Live Metrics)")
     st.write("**📡 1. 基站現況表 (cell_sites)**")
