@@ -75,18 +75,40 @@ with tab_pipeline:
     st.subheader("🧽 CSV 數據匯入與自動清洗")
     st.caption("將外部收集的原始路測數據 (Raw Data) 上傳，去噪後再注入資料庫。")
 
-    # 1. 上傳區塊
-    uploaded_file = st.file_uploader("📥 1. 上傳原始資料檔 (CSV)", type="csv")
+    # 1. 上傳區塊 (加入備用載入機制)
+    st.markdown("**📥 1. 匯入原始資料 (CSV)**")
     
+    # 建立一個佔存變數來存放資料
+    raw_df = None 
+    
+    # 並排顯示上傳區與測試按鈕
+    col_up1, col_up2 = st.columns([1, 1])
+    with col_up1:
+        uploaded_file = st.file_uploader("上傳本地檔案", type="csv", label_visibility="collapsed")
+    with col_up2:
+        st.markdown("<div style='margin-top: 5px; color: #888; font-size: 14px;'>手機無法上傳？</div>", unsafe_allow_html=True)
+        use_sample = st.button("🧪 一鍵載入含雜訊的測試資料", use_container_width=True)
+
+    # 判斷資料來源
     if uploaded_file is not None:
         raw_df = pd.read_csv(uploaded_file)
-        st.write(f"**👀 原始資料預覽 (共 {len(raw_df)} 筆)：**")
-        st.dataframe(raw_df.head(), use_container_width=True)
+    elif use_sample:
+        # 故意製造含有「重複值」與「缺失值 NaN」的髒資料
+        raw_df = pd.DataFrame({
+            "sector_id": [1, 2, 1, 3, 2, None],
+            "rsrp": [-85, -100, -85, -115, -95, -105],
+            "sinr": [15.2, 5.5, 15.2, 2.1, 8.8, None]
+        })
+        st.toast("已載入測試用雜訊數據！", icon="🧪")
 
-        # 2. 互動式清洗策略
+    # 2. 互動式清洗策略 (只有當 raw_df 有資料時才顯示)
+    if raw_df is not None:
+        st.write(f"**👀 原始資料預覽 (共 {len(raw_df)} 筆)：**")
+        st.dataframe(raw_df, use_container_width=True)
+
         st.markdown("**⚙️ 2. 選擇資料清洗策略：**")
         c1, c2 = st.columns(2)
-        drop_dups = c1.checkbox("🗑️ 移除重複資料列", value=True)
+        drop_dups = c1.checkbox("🗑️ 移除重複資料列 (如第1與第3筆)", value=True)
         handle_na = c2.selectbox("🩹 缺失值 (NaN) 處理方式", ["不處理", "整列刪除 (Drop)", "數值補零 (Fill 0)"])
 
         # 執行清洗邏輯
@@ -99,30 +121,29 @@ with tab_pipeline:
             clean_df = clean_df.fillna(0)
 
         st.write(f"**✨ 清洗後資料預覽 (剩餘 {len(clean_df)} 筆)：**")
-        st.dataframe(clean_df.head(), use_container_width=True)
+        st.dataframe(clean_df, use_container_width=True)
 
         # 3. 輸出與載入區塊
         st.markdown("**📤 3. 匯出與寫入：**")
         out1, out2 = st.columns(2)
         
-        # 下載功能
         csv_buffer = clean_df.to_csv(index=False).encode('utf-8')
         out1.download_button(
-            label="⬇️ 下載乾淨的 CSV 備查",
+            label="⬇️ 下載乾淨的 CSV",
             data=csv_buffer,
             file_name="cleaned_rf_data.csv",
             mime="text/csv",
             use_container_width=True
         )
 
-        # 寫入資料庫功能
-        if out2.button("⚡ 正式匯入至路測資料庫 (drive_tests)", type="primary", use_container_width=True):
+        if out2.button("⚡ 正式匯入至資料庫 (drive_tests)", type="primary", use_container_width=True):
             try:
                 clean_df.to_sql("drive_tests", conn, if_exists="append", index=False)
-                st.success(f"💥 成功將 {len(clean_df)} 筆數據匯入資料庫！請至「即時監控」查看。")
+                st.success(f"💥 成功將 {len(clean_df)} 筆數據匯入資料庫！")
                 st.balloons()
             except Exception as e:
-                st.error(f"寫入失敗，請確認 CSV 欄位名稱是否與資料表吻合。錯誤：{e}")
+                st.error(f"寫入失敗，請確認欄位是否吻合。錯誤：{e}")
+
 
 # --- 分頁 3：全方位互動沙盒 ---
 with tab_sandbox:
