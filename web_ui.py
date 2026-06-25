@@ -35,39 +35,45 @@ conn = init_rf_db()
 
 
 # ==========================================
-# 2. 互動式 ER 圖渲染引擎 (原生支援版)
+# 2. 互動式 ER 圖渲染 (純原生無依賴版)
 # ==========================================
 def render_interactive_er():
-    # 使用 Streamlit 原生 Markdown 支援的 Mermaid 語法，完全排除外部 JS 載入錯誤
-    mermaid_code = """
-    ```mermaid
-    erDiagram
-        CellSites ||--o{ RFSectors : contains
-        RFSectors ||--o{ DriveTests : generates
-        
-        CellSites {
-            int site_id PK
-            string site_name
-            float lat
-            float lon
-        }
-        RFSectors {
-            int sector_id PK
-            int site_id FK
-            string band
-            int azimuth
-            int tilt
-        }
-        DriveTests {
-            int log_id PK
-            int sector_id FK
-            int rsrp
-            float sinr
-        }
-    ```
-    """
-    # 直接透過原生 markdown 渲染，安全又快速
-    st.markdown(mermaid_code)
+    st.markdown("### 🔗 射頻數據血緣關係 (1 : N : N)")
+    st.caption("利用純粹的結構卡片取代複雜圖表，完美適配行動裝置，零解析錯誤風險。")
+    
+    # 建立三個視覺化卡片欄位
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        st.success("##### 📡 基站 (cell_sites)\n"
+                   "---\n"
+                   "🔑 **site_id** `PK` (主鍵)\n\n"
+                   "📝 site_name\n\n"
+                   "📍 lat (緯度)\n\n"
+                   "📍 lon (經度)")
+    with c2:
+        st.warning("##### 📐 扇區 (rf_sectors)\n"
+                   "---\n"
+                   "🔑 **sector_id** `PK` (主鍵)\n\n"
+                   "🔗 **site_id** `FK` ➜ 關聯基站\n\n"
+                   "📻 band (頻段)\n\n"
+                   "📐 azimuth (方位角)\n\n"
+                   "📐 tilt (下傾角)")
+    with c3:
+        st.info("##### 📈 路測 (drive_tests)\n"
+                "---\n"
+                "🔑 **log_id** `PK` (主鍵)\n\n"
+                "🔗 **sector_id** `FK` ➜ 關聯扇區\n\n"
+                "📶 rsrp (訊號強度)\n\n"
+                "⚡ sinr (信噪比)")
+    
+    # 畫一條簡單的視覺引導線
+    st.markdown("""
+    <div style='text-align: center; color: #888; font-size: 24px; letter-spacing: 10px;'>
+        基站 ➔ 扇區 ➔ 訊號
+    </div>
+    """, unsafe_allow_html=True)
+
 
 
 # ==========================================
