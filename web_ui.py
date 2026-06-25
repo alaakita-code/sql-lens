@@ -33,34 +33,35 @@ def init_rf_db():
 
 conn = init_rf_db()
 
+
 # ==========================================
 # 2. 互動式 ER 圖渲染引擎 (Mermaid.js)
 # ==========================================
 def render_interactive_er():
-    # Mermaid 語法：定義射頻關聯實體
+    # 修正版：移除容易造成解析錯誤的註解引號，保持純粹結構
     mermaid_code = """
     erDiagram
-        CELL-SITES ||--o{ RF-SECTORS : "包含 (1:N)"
-        RF-SECTORS ||--o{ DRIVE-TESTS : "產生 (1:N)"
+        CELL_SITES ||--o{ RF_SECTORS : contains
+        RF_SECTORS ||--o{ DRIVE_TESTS : generates
         
-        CELL-SITES {
-            int site_id PK "基站編號"
-            string site_name "基站名稱"
-            float lat "緯度"
-            float lon "經度"
+        CELL_SITES {
+            int site_id PK
+            string site_name
+            float lat
+            float lon
         }
-        RF-SECTORS {
-            int sector_id PK "扇區編號"
-            int site_id FK "關聯基站"
-            string band "頻段 (N78/B28)"
-            int azimuth "方位角"
-            int tilt "下傾角"
+        RF_SECTORS {
+            int sector_id PK
+            int site_id FK
+            string band
+            int azimuth
+            int tilt
         }
-        DRIVE-TESTS {
-            int log_id PK "紀錄編號"
-            int sector_id FK "關聯扇區"
-            int rsrp "訊號強度 (dBm)"
-            float sinr "信噪比"
+        DRIVE_TESTS {
+            int log_id PK
+            int sector_id FK
+            int rsrp
+            float sinr
         }
     """
     html_code = f"""
@@ -73,6 +74,7 @@ def render_interactive_er():
     </script>
     """
     components.html(html_code, height=450)
+
 
 # ==========================================
 # 3. 介面佈局：分頁系統
