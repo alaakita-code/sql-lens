@@ -35,45 +35,39 @@ conn = init_rf_db()
 
 
 # ==========================================
-# 2. 互動式 ER 圖渲染引擎 (Mermaid.js)
+# 2. 互動式 ER 圖渲染引擎 (原生支援版)
 # ==========================================
 def render_interactive_er():
-    # 修正版：移除容易造成解析錯誤的註解引號，保持純粹結構
+    # 使用 Streamlit 原生 Markdown 支援的 Mermaid 語法，完全排除外部 JS 載入錯誤
     mermaid_code = """
+    ```mermaid
     erDiagram
-        CELL_SITES ||--o{ RF_SECTORS : contains
-        RF_SECTORS ||--o{ DRIVE_TESTS : generates
+        CellSites ||--o{ RFSectors : contains
+        RFSectors ||--o{ DriveTests : generates
         
-        CELL_SITES {
+        CellSites {
             int site_id PK
             string site_name
             float lat
             float lon
         }
-        RF_SECTORS {
+        RFSectors {
             int sector_id PK
             int site_id FK
             string band
             int azimuth
             int tilt
         }
-        DRIVE_TESTS {
+        DriveTests {
             int log_id PK
             int sector_id FK
             int rsrp
             float sinr
         }
+    ```
     """
-    html_code = f"""
-    <div class="mermaid" style="display: flex; justify-content: center;">
-        {mermaid_code}
-    </div>
-    <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-        mermaid.initialize({{ startOnLoad: true, theme: 'dark' }});
-    </script>
-    """
-    components.html(html_code, height=450)
+    # 直接透過原生 markdown 渲染，安全又快速
+    st.markdown(mermaid_code)
 
 
 # ==========================================
