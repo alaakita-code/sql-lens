@@ -2,3 +2,4 @@ streamlit
 rich
 sqlglot
 pandas
+graphviz
